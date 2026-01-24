@@ -4,23 +4,20 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import (
-    DOMAIN,
-    CONF_USERNAME,
-    CONF_PASSWORD,
-    CONF_ACCESS_TOKEN,
-    CONF_REFRESH_TOKEN,
-    CONF_LAUNDRY_ID,
-    CONF_CARD_ID,
-    SERVICE_START_CYCLE,
-)
 from .api.client import OmoLavanderiaApiClient
-from .api.auth import OmoAuth
-from .api.exceptions import OmoAuthError, OmoApiError
+from .api.exceptions import OmoApiError, OmoAuthError
+from .const import (
+    CONF_ACCESS_TOKEN,
+    CONF_LAUNDRY_ID,
+    CONF_REFRESH_TOKEN,
+    CONF_TOKEN_EXPIRES_AT,
+    DOMAIN,
+)
 from .coordinator import OmoLavanderiaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,29 +33,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Omo Lavanderia from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Create auth with tokens from config
-    auth = OmoAuth(
+    session = async_get_clientsession(hass)
+
+    # Create API client
+    client = OmoLavanderiaApiClient(
+        session=session,
         username=entry.data[CONF_USERNAME],
         password=entry.data[CONF_PASSWORD],
     )
-    auth.access_token = entry.data.get(CONF_ACCESS_TOKEN)
-    auth.refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
 
-    # Create API client
-    api = OmoLavanderiaApiClient(auth)
+    # Set stored tokens if available
+    if entry.data.get(CONF_ACCESS_TOKEN):
+        client.set_tokens(
+            access_token=entry.data[CONF_ACCESS_TOKEN],
+            refresh_token=entry.data.get(CONF_REFRESH_TOKEN, ""),
+            expires_at=entry.data.get(CONF_TOKEN_EXPIRES_AT, 0),
+        )
 
     # Test connection and refresh tokens if needed
     try:
-        if not auth.is_valid:
-            _LOGGER.debug("Token expired, attempting login")
-            await api.async_login()
+        if client.is_token_expired():
+            _LOGGER.debug("Token expired, performing login")
+            await client.async_login()
+
             # Update config entry with new tokens
             hass.config_entries.async_update_entry(
                 entry,
                 data={
                     **entry.data,
-                    CONF_ACCESS_TOKEN: auth.access_token,
-                    CONF_REFRESH_TOKEN: auth.refresh_token,
+                    CONF_ACCESS_TOKEN: client.access_token,
+                    CONF_REFRESH_TOKEN: client.refresh_token,
+                    CONF_TOKEN_EXPIRES_AT: client.token_expires_at,
                 },
             )
     except OmoAuthError as err:
@@ -69,7 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Create coordinator
     coordinator = OmoLavanderiaCoordinator(
         hass=hass,
-        api=api,
+        client=client,
         laundry_id=entry.data[CONF_LAUNDRY_ID],
     )
 
@@ -82,9 +87,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register services
-    await async_setup_services(hass)
-
     return True
 
 
@@ -95,51 +97,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
 
-        # Remove services if no more entries
-        if not hass.data[DOMAIN]:
-            await async_unload_services(hass)
-
     return unload_ok
-
-
-async def async_setup_services(hass: HomeAssistant) -> None:
-    """Set up services for the integration."""
-    # Check if services are already registered
-    if hass.services.has_service(DOMAIN, SERVICE_START_CYCLE):
-        return
-
-    async def handle_start_cycle(call):
-        """Handle start_cycle service call."""
-        machine_id = call.data.get("machine_id")
-        card_id = call.data.get("card_id")
-
-        # Find the coordinator that has this machine
-        for entry_id, coordinator in hass.data[DOMAIN].items():
-            if coordinator.data and machine_id in coordinator.data.machines:
-                # Use provided card_id or get from config
-                if not card_id:
-                    entry = hass.config_entries.async_get_entry(entry_id)
-                    card_id = entry.data.get(CONF_CARD_ID) if entry else None
-
-                if not card_id:
-                    raise ValueError("No card_id provided and none configured")
-
-                try:
-                    await coordinator.api.async_start_machine(machine_id, card_id)
-                    await coordinator.async_request_refresh()
-                    return
-                except OmoApiError as err:
-                    raise ValueError(f"Failed to start machine: {err}") from err
-
-        raise ValueError(f"Machine {machine_id} not found")
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_START_CYCLE,
-        handle_start_cycle,
-    )
-
-
-async def async_unload_services(hass: HomeAssistant) -> None:
-    """Unload services."""
-    hass.services.async_remove(DOMAIN, SERVICE_START_CYCLE)

@@ -1,21 +1,19 @@
-"""Sensor entities for Omo Lavanderia integration."""
-
+"""Sensor entities for Omo Lavanderia."""
 from __future__ import annotations
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
+    SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .api.models import MachineStatus
 from .const import DOMAIN
 from .coordinator import OmoLavanderiaCoordinator
-from .entity import OmoLavanderiaEntity
+from .entity import OmoLavanderiaEntity, OmoLavanderiaLaundryEntity
 
 
 async def async_setup_entry(
@@ -23,31 +21,22 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up sensors from config entry.
-
-    Args:
-        hass: Home Assistant instance.
-        entry: Config entry.
-        async_add_entities: Callback to add entities.
-    """
+    """Set up sensors from config entry."""
     coordinator: OmoLavanderiaCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities: list[SensorEntity] = []
 
-    if coordinator.data:
-        # Add per-machine sensors
+    if coordinator.data and coordinator.data.machines:
         for machine_id in coordinator.data.machines:
-            entities.extend(
-                [
-                    OmoRemainingTimeSensor(coordinator, machine_id),
-                    OmoCycleTimeSensor(coordinator, machine_id),
-                    OmoPriceSensor(coordinator, machine_id),
-                    OmoMachineStatusSensor(coordinator, machine_id),
-                ]
-            )
+            entities.extend([
+                OmoRemainingTimeSensor(coordinator, machine_id),
+                OmoCycleTimeSensor(coordinator, machine_id),
+                OmoPriceSensor(coordinator, machine_id),
+                OmoMachineStatusSensor(coordinator, machine_id),
+            ])
 
-        # Add laundry-level sensors
-        entities.append(OmoLaundryStatusSensor(coordinator))
+    # Add laundry-level sensor
+    entities.append(OmoLaundryStatusSensor(coordinator))
 
     async_add_entities(entities)
 
@@ -56,54 +45,48 @@ class OmoRemainingTimeSensor(OmoLavanderiaEntity, SensorEntity):
     """Sensor for remaining cycle time."""
 
     _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = "s"
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:timer"
+    _attr_translation_key = "remaining_time"
 
-    def __init__(
-        self, coordinator: OmoLavanderiaCoordinator, machine_id: str
-    ) -> None:
-        """Initialize remaining time sensor.
-
-        Args:
-            coordinator: The data update coordinator.
-            machine_id: The ID of the machine.
-        """
+    def __init__(self, coordinator: OmoLavanderiaCoordinator, machine_id: str) -> None:
+        """Initialize sensor."""
         super().__init__(coordinator, machine_id)
         self._attr_unique_id = f"{machine_id}_remaining_time"
-        self._attr_translation_key = "remaining_time"
 
     @property
     def native_value(self) -> int | None:
-        """Return the remaining time in seconds."""
+        """Return remaining time in seconds."""
         state = self.machine_state
         if state and state.is_in_use_by_me:
             return state.remaining_time_seconds
         return None
+
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        state = self.machine_state
+        return state is not None and state.is_in_use_by_me
 
 
 class OmoCycleTimeSensor(OmoLavanderiaEntity, SensorEntity):
     """Sensor for machine cycle time."""
 
     _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = "min"
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:clock-outline"
+    _attr_translation_key = "cycle_time"
 
-    def __init__(
-        self, coordinator: OmoLavanderiaCoordinator, machine_id: str
-    ) -> None:
-        """Initialize cycle time sensor.
-
-        Args:
-            coordinator: The data update coordinator.
-            machine_id: The ID of the machine.
-        """
+    def __init__(self, coordinator: OmoLavanderiaCoordinator, machine_id: str) -> None:
+        """Initialize sensor."""
         super().__init__(coordinator, machine_id)
         self._attr_unique_id = f"{machine_id}_cycle_time"
-        self._attr_translation_key = "cycle_time"
 
     @property
     def native_value(self) -> int | None:
-        """Return the cycle time in minutes."""
+        """Return cycle time in minutes."""
         state = self.machine_state
         if state and state.machine:
             return state.machine.cycle_time
@@ -115,27 +98,21 @@ class OmoPriceSensor(OmoLavanderiaEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "BRL"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:currency-brl"
+    _attr_translation_key = "price"
 
-    def __init__(
-        self, coordinator: OmoLavanderiaCoordinator, machine_id: str
-    ) -> None:
-        """Initialize price sensor.
-
-        Args:
-            coordinator: The data update coordinator.
-            machine_id: The ID of the machine.
-        """
+    def __init__(self, coordinator: OmoLavanderiaCoordinator, machine_id: str) -> None:
+        """Initialize sensor."""
         super().__init__(coordinator, machine_id)
         self._attr_unique_id = f"{machine_id}_price"
-        self._attr_translation_key = "price"
 
     @property
     def native_value(self) -> float | None:
-        """Return the machine price."""
+        """Return machine price."""
         state = self.machine_state
-        if state and state.machine:
-            return state.machine.price
+        if state and state.machine and state.machine.price:
+            return state.machine.price.price
         return None
 
 
@@ -144,96 +121,52 @@ class OmoMachineStatusSensor(OmoLavanderiaEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["available", "in_use", "in_use_by_me", "unavailable"]
+    _attr_icon = "mdi:washing-machine"
+    _attr_translation_key = "machine_status"
 
-    def __init__(
-        self, coordinator: OmoLavanderiaCoordinator, machine_id: str
-    ) -> None:
-        """Initialize status sensor.
-
-        Args:
-            coordinator: The data update coordinator.
-            machine_id: The ID of the machine.
-        """
+    def __init__(self, coordinator: OmoLavanderiaCoordinator, machine_id: str) -> None:
+        """Initialize sensor."""
         super().__init__(coordinator, machine_id)
         self._attr_unique_id = f"{machine_id}_status"
-        self._attr_translation_key = "machine_status"
 
     @property
     def native_value(self) -> str | None:
-        """Return the machine status."""
+        """Return machine status."""
         state = self.machine_state
         if state is None:
             return None
 
         if state.is_in_use_by_me:
             return "in_use_by_me"
-
         if state.is_available:
             return "available"
-
-        if state.machine.status == MachineStatus.IN_USE:
+        if state.machine.status.value == "IN_USE":
             return "in_use"
-
-        # Covers OUT_OF_ORDER, RESERVED, OFFLINE
         return "unavailable"
 
 
-class OmoLaundryStatusSensor(SensorEntity):
+class OmoLaundryStatusSensor(OmoLavanderiaLaundryEntity, SensorEntity):
     """Sensor for laundry status."""
 
-    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["open", "closed", "blocked"]
+    _attr_icon = "mdi:door"
+    _attr_translation_key = "laundry_status"
 
     def __init__(self, coordinator: OmoLavanderiaCoordinator) -> None:
-        """Initialize laundry status sensor.
-
-        Args:
-            coordinator: The data update coordinator.
-        """
-        self.coordinator = coordinator
-        laundry = coordinator.data.laundry if coordinator.data else None
-        laundry_id = laundry.id if laundry else "unknown"
-
-        self._attr_unique_id = f"{laundry_id}_laundry_status"
-        self._attr_translation_key = "laundry_status"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info for the laundry."""
-        laundry = self.coordinator.data.laundry if self.coordinator.data else None
-
-        return DeviceInfo(
-            identifiers={(DOMAIN, laundry.id if laundry else "unknown")},
-            name=laundry.name if laundry else "Laundry",
-            manufacturer="Omo Lavanderia",
-            model="Laundry Location",
-        )
+        """Initialize sensor."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{self._laundry_id}_status"
 
     @property
     def native_value(self) -> str | None:
-        """Return the laundry status."""
-        if self.coordinator.data is None:
+        """Return laundry status."""
+        laundry = self.coordinator.data.laundry if self.coordinator.data else None
+        if laundry is None:
             return None
-
-        laundry = self.coordinator.data.laundry
 
         if laundry.is_blocked:
             return "blocked"
-
         if laundry.is_closed:
             return "closed"
-
         return "open"
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return self.coordinator.last_update_success and self.coordinator.data is not None
-
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )

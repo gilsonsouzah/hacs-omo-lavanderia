@@ -1,5 +1,4 @@
-"""Button entities for Omo Lavanderia integration."""
-
+"""Button entities for Omo Lavanderia."""
 from __future__ import annotations
 
 import logging
@@ -7,15 +6,36 @@ import logging
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_CARD_ID
+from .api.exceptions import OmoApiError
+from .const import CONF_CARD_ID, CONF_LAUNDRY_ID, DOMAIN
 from .coordinator import OmoLavanderiaCoordinator
 from .entity import OmoLavanderiaEntity
-from .api.exceptions import OmoApiError
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up button entities from config entry."""
+    coordinator: OmoLavanderiaCoordinator = hass.data[DOMAIN][entry.entry_id]
+    card_id = entry.data.get(CONF_CARD_ID)
+    laundry_id = entry.data.get(CONF_LAUNDRY_ID)
+
+    entities: list[ButtonEntity] = []
+
+    if coordinator.data and coordinator.data.machines and card_id and laundry_id:
+        for machine_id in coordinator.data.machines:
+            entities.append(
+                OmoStartCycleButton(coordinator, machine_id, card_id, laundry_id)
+            )
+
+    async_add_entities(entities)
 
 
 class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
@@ -29,10 +49,12 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
         coordinator: OmoLavanderiaCoordinator,
         machine_id: str,
         card_id: str,
+        laundry_id: str,
     ) -> None:
         """Initialize the button."""
         super().__init__(coordinator, machine_id)
         self._card_id = card_id
+        self._laundry_id = laundry_id
         self._attr_unique_id = f"{machine_id}_start_cycle"
 
     @property
@@ -50,17 +72,18 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
             raise HomeAssistantError("Machine is not available")
 
         try:
-            success = await self.coordinator.api.async_start_machine(
+            result = await self.coordinator.client.async_start_machine(
                 machine_id=self._machine_id,
                 card_id=self._card_id,
+                laundry_id=self._laundry_id,
             )
 
-            if not success:
+            if not result.get("success", True):
                 raise HomeAssistantError("Failed to start machine cycle")
 
             _LOGGER.info(
                 "Started cycle on machine %s",
-                state.machine.displayName if state.machine else self._machine_id,
+                state.machine.display_name if state.machine else self._machine_id,
             )
 
             # Refresh coordinator to update states
@@ -69,23 +92,3 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
         except OmoApiError as err:
             _LOGGER.error("API error starting machine: %s", err)
             raise HomeAssistantError(f"Failed to start machine: {err}") from err
-
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up button entities from config entry."""
-    coordinator: OmoLavanderiaCoordinator = hass.data[DOMAIN][entry.entry_id]
-    card_id = entry.data.get(CONF_CARD_ID)
-
-    entities: list[ButtonEntity] = []
-
-    if coordinator.data and coordinator.data.machines and card_id:
-        for machine_id in coordinator.data.machines:
-            entities.append(
-                OmoStartCycleButton(coordinator, machine_id, card_id)
-            )
-
-    async_add_entities(entities)
