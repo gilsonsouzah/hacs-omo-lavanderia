@@ -10,6 +10,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .api.exceptions import OmoApiError
+from .api.models import MachineType
 from .const import CONF_CARD_ID, CONF_LAUNDRY_ID, DOMAIN
 from .coordinator import OmoLavanderiaCoordinator
 from .entity import OmoLavanderiaEntity
@@ -42,7 +43,6 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
     """Button to start a machine cycle."""
 
     _attr_translation_key = "start_cycle"
-    _attr_icon = "mdi:play-circle"
 
     def __init__(
         self,
@@ -56,6 +56,13 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
         self._card_id = card_id
         self._laundry_id = laundry_id
         self._attr_unique_id = f"{machine_id}_start_cycle"
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on machine type."""
+        state = self.machine_state
+        is_dryer = state and state.machine and state.machine.machine_type == MachineType.DRYER
+        return "mdi:tumble-dryer" if is_dryer else "mdi:washing-machine"
 
     @property
     def available(self) -> bool:

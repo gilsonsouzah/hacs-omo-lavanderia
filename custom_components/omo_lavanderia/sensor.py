@@ -11,9 +11,10 @@ from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .api.models import MachineType
 from .const import DOMAIN
 from .coordinator import OmoLavanderiaCoordinator
-from .entity import OmoLavanderiaEntity, OmoLavanderiaLaundryEntity
+from .entity import OmoLavanderiaEntity
 
 
 async def async_setup_entry(
@@ -35,9 +36,6 @@ async def async_setup_entry(
                 OmoMachineStatusSensor(coordinator, machine_id),
             ])
 
-    # Add laundry-level sensor
-    entities.append(OmoLaundryStatusSensor(coordinator))
-
     async_add_entities(entities)
 
 
@@ -47,8 +45,16 @@ class OmoRemainingTimeSensor(OmoLavanderiaEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:timer"
     _attr_translation_key = "remaining_time"
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on machine type."""
+        state = self.machine_state
+        if state and state.machine:
+            if state.machine.machine_type == MachineType.DRYER:
+                return "mdi:tumble-dryer"
+        return "mdi:washing-machine"
 
     def __init__(self, coordinator: OmoLavanderiaCoordinator, machine_id: str) -> None:
         """Initialize sensor."""
@@ -121,8 +127,17 @@ class OmoMachineStatusSensor(OmoLavanderiaEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["available", "in_use", "in_use_by_me", "unavailable"]
-    _attr_icon = "mdi:washing-machine"
     _attr_translation_key = "machine_status"
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on machine type and state."""
+        state = self.machine_state
+        is_dryer = state and state.machine and state.machine.machine_type == MachineType.DRYER
+        
+        if state and (state.is_in_use_by_me or not state.is_available):
+            return "mdi:tumble-dryer-alert" if is_dryer else "mdi:washing-machine-alert"
+        return "mdi:tumble-dryer" if is_dryer else "mdi:washing-machine"
 
     def __init__(self, coordinator: OmoLavanderiaCoordinator, machine_id: str) -> None:
         """Initialize sensor."""
@@ -143,30 +158,3 @@ class OmoMachineStatusSensor(OmoLavanderiaEntity, SensorEntity):
         if state.machine.status.value == "IN_USE":
             return "in_use"
         return "unavailable"
-
-
-class OmoLaundryStatusSensor(OmoLavanderiaLaundryEntity, SensorEntity):
-    """Sensor for laundry status."""
-
-    _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["open", "closed", "blocked"]
-    _attr_icon = "mdi:door"
-    _attr_translation_key = "laundry_status"
-
-    def __init__(self, coordinator: OmoLavanderiaCoordinator) -> None:
-        """Initialize sensor."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{self._laundry_id}_status"
-
-    @property
-    def native_value(self) -> str | None:
-        """Return laundry status."""
-        laundry = self.coordinator.data.laundry if self.coordinator.data else None
-        if laundry is None:
-            return None
-
-        if laundry.is_blocked:
-            return "blocked"
-        if laundry.is_closed:
-            return "closed"
-        return "open"

@@ -9,9 +9,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .api.models import MachineType
 from .const import DOMAIN
 from .coordinator import OmoLavanderiaCoordinator
-from .entity import OmoLavanderiaEntity, OmoLavanderiaLaundryEntity
+from .entity import OmoLavanderiaEntity
 
 
 async def async_setup_entry(
@@ -28,11 +29,8 @@ async def async_setup_entry(
         for machine_id in coordinator.data.machines:
             entities.extend([
                 OmoMachineAvailableBinarySensor(coordinator, machine_id),
-                OmoMachineInUseByMeBinarySensor(coordinator, machine_id),
+                OmoMachineRunningBinarySensor(coordinator, machine_id),
             ])
-
-    # Add laundry-level binary sensor
-    entities.append(OmoLaundryOpenBinarySensor(coordinator))
 
     async_add_entities(entities)
 
@@ -55,52 +53,38 @@ class OmoMachineAvailableBinarySensor(OmoLavanderiaEntity, BinarySensorEntity):
 
     @property
     def icon(self) -> str:
-        """Return icon based on state."""
-        return "mdi:washing-machine" if self.is_on else "mdi:washing-machine-off"
+        """Return icon based on machine type and state."""
+        state = self.machine_state
+        is_dryer = state and state.machine and state.machine.machine_type == MachineType.DRYER
+        
+        if self.is_on:
+            return "mdi:tumble-dryer" if is_dryer else "mdi:washing-machine"
+        return "mdi:tumble-dryer-off" if is_dryer else "mdi:washing-machine-off"
 
 
-class OmoMachineInUseByMeBinarySensor(OmoLavanderiaEntity, BinarySensorEntity):
-    """Binary sensor indicating if machine is being used by current user."""
+class OmoMachineRunningBinarySensor(OmoLavanderiaEntity, BinarySensorEntity):
+    """Binary sensor indicating if machine is currently running (in use by me)."""
 
-    _attr_translation_key = "in_use_by_me"
+    _attr_device_class = BinarySensorDeviceClass.RUNNING
+    _attr_translation_key = "running"
 
     def __init__(self, coordinator: OmoLavanderiaCoordinator, machine_id: str) -> None:
         """Initialize sensor."""
         super().__init__(coordinator, machine_id)
-        self._attr_unique_id = f"{machine_id}_in_use_by_me"
+        self._attr_unique_id = f"{machine_id}_running"
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if machine is in use by current user."""
+        """Return True if machine is running (in use by current user)."""
         state = self.machine_state
         return state.is_in_use_by_me if state else None
 
     @property
     def icon(self) -> str:
-        """Return icon based on state."""
-        return "mdi:account-check" if self.is_on else "mdi:account"
-
-
-class OmoLaundryOpenBinarySensor(OmoLavanderiaLaundryEntity, BinarySensorEntity):
-    """Binary sensor indicating if laundry is open."""
-
-    _attr_device_class = BinarySensorDeviceClass.DOOR
-    _attr_translation_key = "laundry_open"
-
-    def __init__(self, coordinator: OmoLavanderiaCoordinator) -> None:
-        """Initialize sensor."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{self._laundry_id}_is_open"
-
-    @property
-    def is_on(self) -> bool | None:
-        """Return True if laundry is open."""
-        laundry = self.coordinator.data.laundry if self.coordinator.data else None
-        if laundry is None:
-            return None
-        return not laundry.is_closed and not laundry.is_blocked
-
-    @property
-    def icon(self) -> str:
-        """Return icon based on state."""
-        return "mdi:door-open" if self.is_on else "mdi:door-closed"
+        """Return icon based on machine type."""
+        state = self.machine_state
+        is_dryer = state and state.machine and state.machine.machine_type == MachineType.DRYER
+        
+        if self.is_on:
+            return "mdi:tumble-dryer-alert" if is_dryer else "mdi:washing-machine-alert"
+        return "mdi:tumble-dryer" if is_dryer else "mdi:washing-machine"

@@ -53,25 +53,14 @@
           "in_use_by_me": "In Use (by me)",
           "unavailable": "Unavailable"
         }
-      },
-      "laundry_status": {
-        "name": "Laundry Status",
-        "state": {
-          "open": "Open",
-          "closed": "Closed",
-          "blocked": "Blocked"
-        }
       }
     },
     "binary_sensor": {
       "available": {
         "name": "Available"
       },
-      "in_use_by_me": {
-        "name": "In Use By Me"
-      },
-      "laundry_open": {
-        "name": "Laundry Open"
+      "running": {
+        "name": "Running"
       }
     },
     "button": {

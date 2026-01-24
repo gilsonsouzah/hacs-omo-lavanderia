@@ -53,25 +53,14 @@
           "in_use_by_me": "Em Uso (por mim)",
           "unavailable": "Indisponível"
         }
-      },
-      "laundry_status": {
-        "name": "Status da Lavanderia",
-        "state": {
-          "open": "Aberta",
-          "closed": "Fechada",
-          "blocked": "Bloqueada"
-        }
       }
     },
     "binary_sensor": {
       "available": {
         "name": "Disponível"
       },
-      "in_use_by_me": {
-        "name": "Em Uso Por Mim"
-      },
-      "laundry_open": {
-        "name": "Lavanderia Aberta"
+      "running": {
+        "name": "Em Funcionamento"
       }
     },
     "button": {
