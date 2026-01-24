@@ -1,6 +1,6 @@
 {
   "name": "Omo Lavanderia",
-  "description": "Integração para controlar lavanderias Machine Guardian (Omo Lavanderia) - monitore máquinas, inicie ciclos e receba notificações",
+  "content_in_root": false,
   "render_readme": true,
   "homeassistant": "2024.1.0"
 }
