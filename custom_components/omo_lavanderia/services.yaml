@@ -1,0 +1,16 @@
+start_cycle:
+  name: Start Cycle
+  description: Start a washing/drying cycle on a machine
+  fields:
+    machine_id:
+      name: Machine ID
+      description: The ID of the machine to start
+      required: true
+      selector:
+        text:
+    card_id:
+      name: Card ID
+      description: The payment card ID to use (optional, uses configured card if not provided)
+      required: false
+      selector:
+        text:

@@ -1,0 +1,83 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Login to Omo Lavanderia",
+        "description": "Enter your Machine Guardian credentials",
+        "data": {
+          "username": "Username (CPF or Email)",
+          "password": "Password"
+        }
+      },
+      "select_laundry": {
+        "title": "Select Laundry",
+        "description": "Choose the laundry location to integrate",
+        "data": {
+          "laundry_id": "Laundry"
+        }
+      },
+      "select_card": {
+        "title": "Select Payment Card",
+        "description": "Choose default payment card for machine usage",
+        "data": {
+          "card_id": "Payment Card"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password",
+      "cannot_connect": "Cannot connect to Omo Lavanderia API",
+      "no_laundries": "No private laundries (OLC) found for your account",
+      "no_cards": "No payment cards found. Add a card in the app first."
+    },
+    "abort": {
+      "already_configured": "This account is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "remaining_time": {
+        "name": "Remaining Time"
+      },
+      "cycle_time": {
+        "name": "Cycle Time"
+      },
+      "price": {
+        "name": "Price"
+      },
+      "machine_status": {
+        "name": "Status",
+        "state": {
+          "available": "Available",
+          "in_use": "In Use",
+          "in_use_by_me": "In Use (by me)",
+          "unavailable": "Unavailable"
+        }
+      },
+      "laundry_status": {
+        "name": "Laundry Status",
+        "state": {
+          "open": "Open",
+          "closed": "Closed",
+          "blocked": "Blocked"
+        }
+      }
+    },
+    "binary_sensor": {
+      "available": {
+        "name": "Available"
+      },
+      "in_use_by_me": {
+        "name": "In Use By Me"
+      },
+      "laundry_open": {
+        "name": "Laundry Open"
+      }
+    },
+    "button": {
+      "start_cycle": {
+        "name": "Start Cycle"
+      }
+    }
+  }
+}

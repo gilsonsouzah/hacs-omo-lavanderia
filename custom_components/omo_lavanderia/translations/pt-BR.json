@@ -1,0 +1,83 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Entrar no Omo Lavanderia",
+        "description": "Digite suas credenciais do Machine Guardian",
+        "data": {
+          "username": "Usuário (CPF ou Email)",
+          "password": "Senha"
+        }
+      },
+      "select_laundry": {
+        "title": "Selecionar Lavanderia",
+        "description": "Escolha a lavanderia para integrar",
+        "data": {
+          "laundry_id": "Lavanderia"
+        }
+      },
+      "select_card": {
+        "title": "Selecionar Cartão de Pagamento",
+        "description": "Escolha o cartão padrão para uso das máquinas",
+        "data": {
+          "card_id": "Cartão de Pagamento"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Usuário ou senha inválidos",
+      "cannot_connect": "Não foi possível conectar à API do Omo Lavanderia",
+      "no_laundries": "Nenhuma lavanderia privada (OLC) encontrada para sua conta",
+      "no_cards": "Nenhum cartão de pagamento encontrado. Adicione um cartão no app primeiro."
+    },
+    "abort": {
+      "already_configured": "Esta conta já está configurada"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "remaining_time": {
+        "name": "Tempo Restante"
+      },
+      "cycle_time": {
+        "name": "Tempo de Ciclo"
+      },
+      "price": {
+        "name": "Preço"
+      },
+      "machine_status": {
+        "name": "Status",
+        "state": {
+          "available": "Disponível",
+          "in_use": "Em Uso",
+          "in_use_by_me": "Em Uso (por mim)",
+          "unavailable": "Indisponível"
+        }
+      },
+      "laundry_status": {
+        "name": "Status da Lavanderia",
+        "state": {
+          "open": "Aberta",
+          "closed": "Fechada",
+          "blocked": "Bloqueada"
+        }
+      }
+    },
+    "binary_sensor": {
+      "available": {
+        "name": "Disponível"
+      },
+      "in_use_by_me": {
+        "name": "Em Uso Por Mim"
+      },
+      "laundry_open": {
+        "name": "Lavanderia Aberta"
+      }
+    },
+    "button": {
+      "start_cycle": {
+        "name": "Iniciar Ciclo"
+      }
+    }
+  }
+}
