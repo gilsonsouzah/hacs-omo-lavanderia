@@ -67,7 +67,16 @@ class OmoLavanderiaApiClient:
 
     def is_token_expired(self) -> bool:
         """Check if token is expired or about to expire."""
-        return time.time() >= (self._token_expires_at - 60)
+        if self._token_expires_at == 0:
+            return True
+        
+        # API returns timestamp in milliseconds, convert to seconds for comparison
+        expires_at_seconds = self._token_expires_at
+        if self._token_expires_at > 9999999999:  # If > year 2286, it's in milliseconds
+            expires_at_seconds = self._token_expires_at / 1000
+        
+        # Token is expired if current time is within 5 minutes of expiration
+        return time.time() >= (expires_at_seconds - 300)
 
     def _get_headers(self, include_auth: bool = True) -> dict[str, str]:
         """Get standard headers for API requests."""
@@ -162,10 +171,18 @@ class OmoLavanderiaApiClient:
 
                 self._access_token = data.get("accessToken", "")
                 self._refresh_token = data.get("refreshToken", "")
-                # API returns expiration as timestamp
-                self._token_expires_at = data.get("accessTokenExpiresIn", 0)
+                # API returns expiration as timestamp (sometimes in ms, sometimes in s)
+                expires_in = data.get("accessTokenExpiresIn", 0)
+                # Normalize to seconds
+                if expires_in > 9999999999:  # If > year 2286, it's in milliseconds
+                    expires_in = expires_in / 1000
+                self._token_expires_at = int(expires_in)
 
-                _LOGGER.info("Successfully logged in as %s", self._username)
+                _LOGGER.info(
+                    "Successfully logged in as %s, token expires at %s",
+                    self._username,
+                    self._token_expires_at,
+                )
 
         except aiohttp.ClientError as err:
             raise OmoAuthError(f"Login failed: {err}") from err

@@ -60,14 +60,24 @@ class OmoLavanderiaCoordinator(DataUpdateCoordinator[OmoLavanderiaData]):
         try:
             # Check if token needs refresh
             if self.client.is_token_expired():
+                _LOGGER.debug("Token expired, performing login")
                 await self.client.async_login()
 
-            # Fetch laundry details and active orders in parallel
+            # Fetch laundry details and active orders
+            _LOGGER.debug("Fetching laundry %s data", self.laundry_id)
             laundry = await self.client.async_get_laundry(self.laundry_id)
+            
+            _LOGGER.debug("Fetching active orders")
             active_orders = await self.client.async_get_active_orders()
 
             # Build machine states
             machines = self._build_machine_states(laundry, active_orders)
+            
+            _LOGGER.debug(
+                "Update complete: %d machines, %d active orders",
+                len(machines),
+                len(active_orders),
+            )
 
             return OmoLavanderiaData(
                 laundry=laundry,
@@ -76,11 +86,13 @@ class OmoLavanderiaCoordinator(DataUpdateCoordinator[OmoLavanderiaData]):
             )
 
         except OmoAuthError as err:
+            _LOGGER.error("Authentication error: %s", err)
             raise UpdateFailed(f"Authentication failed: {err}") from err
         except OmoApiError as err:
+            _LOGGER.error("API error: %s", err)
             raise UpdateFailed(f"API error: {err}") from err
         except Exception as err:
-            _LOGGER.exception("Unexpected error fetching data")
+            _LOGGER.exception("Unexpected error fetching data: %s", err)
             raise UpdateFailed(f"Unexpected error: {err}") from err
 
     def _build_machine_states(
