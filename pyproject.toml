@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omo-lavanderia"
-version = "1.3.2"
+version = "1.3.3"
 description = "Home Assistant integration for Omo Lavanderia (Machine Guardian)"
 readme = "README.md"
 license = {text = "MIT"}

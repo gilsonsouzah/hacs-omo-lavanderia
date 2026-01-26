@@ -215,14 +215,20 @@ class OmoLavanderiaCoordinator(DataUpdateCoordinator[OmoLavanderiaData]):
         all_machines = laundry.washers + laundry.dryers
         for machine in all_machines:
             is_available = machine.status == MachineStatus.AVAILABLE
-            is_in_use_by_me = machine.display_name in active_machine_map
+            has_active_order = machine.display_name in active_machine_map
             remaining_time = None
             order_id = None
             usage_status: str = "AVAILABLE" if is_available else machine.status.value
             is_running = False
+            is_in_use_by_me = False
 
-            if is_in_use_by_me:
+            if has_active_order:
                 remaining_time, order_id, usage_status = active_machine_map[machine.display_name]
+                
+                # Machine is only "in use by me" if cycle is not complete
+                # COMPLETE status means the cycle finished - user just needs to pick up laundry
+                is_in_use_by_me = usage_status not in ("COMPLETE", "AVAILABLE")
+                
                 # Machine is only "running" if usageStatus is IN_USE and has remaining time
                 is_running = usage_status == "IN_USE" and remaining_time is not None and remaining_time > 0
                 
