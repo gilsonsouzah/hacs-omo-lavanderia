@@ -34,7 +34,7 @@ class MachineState:
     is_running: bool = False  # True only when actually running (IN_USE with remainingTime > 0)
     remaining_time_seconds: int | None = None
     order_id: str | None = None
-    usage_status: str | None = None  # AVAILABLE, READY, IN_USE, COMPLETE
+    usage_status: str = "AVAILABLE"  # AVAILABLE, READY, IN_USE, COMPLETE, UNAVAILABLE, OFFLINE
 
 
 @dataclass
@@ -218,7 +218,7 @@ class OmoLavanderiaCoordinator(DataUpdateCoordinator[OmoLavanderiaData]):
             is_in_use_by_me = machine.display_name in active_machine_map
             remaining_time = None
             order_id = None
-            usage_status = None
+            usage_status: str = "AVAILABLE" if is_available else machine.status.value
             is_running = False
 
             if is_in_use_by_me:

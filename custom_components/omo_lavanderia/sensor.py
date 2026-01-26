@@ -185,11 +185,25 @@ class OmoDiagnosticSensor(OmoLavanderiaEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:bug"
     _attr_translation_key = "diagnostic"
+    
+    # Usage status translations
+    USAGE_STATUS_TRANSLATIONS = {
+        "AVAILABLE": "Disponível",
+        "READY": "Pronta (aguardando botão)",
+        "IN_USE": "Em Uso",
+        "COMPLETE": "Ciclo Completo",
+        "UNAVAILABLE": "Indisponível",
+        "OFFLINE": "Offline",
+    }
 
     def __init__(self, coordinator: OmoLavanderiaCoordinator, machine_id: str) -> None:
         """Initialize diagnostic sensor."""
         super().__init__(coordinator, machine_id)
         self._attr_unique_id = f"{machine_id}_diagnostic"
+
+    def _get_usage_status_display(self, status: str) -> str:
+        """Get user-friendly display name for usage status."""
+        return self.USAGE_STATUS_TRANSLATIONS.get(status, status)
 
     @property
     def native_value(self) -> str:
@@ -256,6 +270,9 @@ class OmoDiagnosticSensor(OmoLavanderiaEntity, SensorEntity):
 
         # Machine-specific info
         if state:
+            # Translate usage_status to user-friendly value
+            usage_status_display = self._get_usage_status_display(state.usage_status)
+            
             attrs.update({
                 "machine_id": state.machine.id if state.machine else None,
                 "machine_code": state.machine.code if state.machine else None,
@@ -263,7 +280,8 @@ class OmoDiagnosticSensor(OmoLavanderiaEntity, SensorEntity):
                 "is_available": state.is_available,
                 "is_in_use_by_me": state.is_in_use_by_me,
                 "is_running": state.is_running,
-                "usage_status": state.usage_status,
+                "usage_status": usage_status_display,
+                "usage_status_raw": state.usage_status,
             })
 
             # Active order/session details when in use
