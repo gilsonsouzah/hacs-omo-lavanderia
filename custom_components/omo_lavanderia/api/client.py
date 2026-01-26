@@ -373,9 +373,16 @@ class OmoLavanderiaApiClient:
         checkout_result = await self._request("POST", "/order/payment-checkout", data=payment_data)
         
         # Extract order_id from checkout response
+        # API returns order_id in different places: order.id, orderId, or id
         order_id = None
         if isinstance(checkout_result, dict):
-            order_id = checkout_result.get("orderId") or checkout_result.get("id")
+            # Try order.id first (most common)
+            order_obj = checkout_result.get("order")
+            if isinstance(order_obj, dict):
+                order_id = order_obj.get("id")
+            # Fallback to direct fields
+            if not order_id:
+                order_id = checkout_result.get("orderId") or checkout_result.get("id")
         
         if not order_id:
             _LOGGER.error("Checkout succeeded but no order_id returned: %s", checkout_result)
