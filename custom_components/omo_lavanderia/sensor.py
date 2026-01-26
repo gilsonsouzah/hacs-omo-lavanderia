@@ -1,8 +1,10 @@
 """Sensor entities for Omo Lavanderia."""
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -299,4 +301,4 @@ class OmoDiagnosticSensor(OmoLavanderiaEntity, SensorEntity):
                 await self.coordinator.client.async_ensure_valid_token()
             except Exception as err:
                 # Log but don't fail - the status will show the error
-                pass
+                logging.getLogger(__name__).debug("Token refresh failed: %s", err)

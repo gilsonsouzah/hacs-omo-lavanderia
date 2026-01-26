@@ -18,6 +18,8 @@ class MachineStatus(Enum):
 
     AVAILABLE = "AVAILABLE"
     IN_USE = "IN_USE"
+    READY = "READY"
+    COMPLETE = "COMPLETE"
     UNAVAILABLE = "UNAVAILABLE"
     OFFLINE = "OFFLINE"
 
@@ -75,6 +77,14 @@ class LaundryMachine:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> LaundryMachine:
         """Create from API response."""
+        # Handle status with fallback for unknown values
+        status_str = data.get("status", "AVAILABLE")
+        try:
+            status = MachineStatus(status_str)
+        except ValueError:
+            # Unknown status, default to UNAVAILABLE
+            status = MachineStatus.UNAVAILABLE
+            
         return cls(
             id=data.get("id", ""),
             code=data.get("code", ""),
@@ -84,7 +94,7 @@ class LaundryMachine:
             serial=data.get("serial", ""),
             model=data.get("model", ""),
             cycle_time=data.get("cycleTime", 30),
-            status=MachineStatus(data.get("status", "AVAILABLE")),
+            status=status,
             price=MachinePrice.from_dict(data["price"]) if data.get("price") else None,
             unavailable=MachineUnavailable.from_dict(data.get("unavailable")),
         )

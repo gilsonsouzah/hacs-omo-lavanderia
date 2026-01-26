@@ -1,6 +1,8 @@
 """Binary sensor entities for Omo Lavanderia."""
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
@@ -142,7 +144,7 @@ class OmoMachineEndingSoonBinarySensor(OmoLavanderiaEntity, BinarySensorEntity):
         return "mdi:timer-outline"
 
     @property
-    def extra_state_attributes(self) -> dict[str, any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional attributes."""
         state = self.machine_state
         attrs = {

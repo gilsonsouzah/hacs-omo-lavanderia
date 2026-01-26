@@ -359,7 +359,10 @@ class OmoLavanderiaApiClient:
         
         This performs the full flow:
         1. POST /order/payment-checkout - Create order and process payment
-        2. POST /machine/start-machine - Unlock the machine
+        2. POST /machine/start-machine - Unlock the machine (if canUnlock=true)
+        
+        After unlock (usageStatus=READY), user must press physical button on machine.
+        Then machine goes to IN_USE with remainingTime counting down.
         """
         # Step 1: Payment checkout
         payment_data = {
@@ -376,7 +379,7 @@ class OmoLavanderiaApiClient:
         # API returns order_id in different places: order.id, orderId, or id
         order_id = None
         if isinstance(checkout_result, dict):
-            # Try order.id first (most common)
+            # Try order.id first (most common based on Washer Machine.js)
             order_obj = checkout_result.get("order")
             if isinstance(order_obj, dict):
                 order_id = order_obj.get("id")
@@ -386,30 +389,53 @@ class OmoLavanderiaApiClient:
         
         if not order_id:
             _LOGGER.error("Checkout succeeded but no order_id returned: %s", checkout_result)
-            return checkout_result
+            return {"success": False, "error": "No order_id in checkout response"}
         
-        _LOGGER.debug("Checkout complete, order_id: %s", order_id)
+        _LOGGER.info("Checkout complete, order_id: %s, payment confirmed", order_id)
         
         # Step 2: Unlock/Start the machine
+        # According to API flow, after payment the machine has canUnlock=true
         unlock_data = {
             "laundryId": laundry_id,
             "machineId": machine_id,
             "orderId": order_id,
         }
         
-        _LOGGER.debug("Unlocking machine %s", machine_id)
+        _LOGGER.debug("Unlocking machine %s with order %s", machine_id, order_id)
         try:
             unlock_result = await self._request("POST", "/machine/start-machine", data=unlock_data)
+            usage_status = unlock_result.get("usageStatus") if isinstance(unlock_result, dict) else None
+            machine_name = unlock_result.get("machineName") if isinstance(unlock_result, dict) else machine_id
+            
             _LOGGER.info(
-                "Machine %s unlocked successfully: %s",
-                machine_id,
-                unlock_result.get("usageStatus") if isinstance(unlock_result, dict) else unlock_result,
+                "Machine %s unlocked successfully, usageStatus: %s (press button to start)",
+                machine_name,
+                usage_status,
             )
+            
+            return {
+                "success": True,
+                "orderId": order_id,
+                "machineId": machine_id,
+                "usageStatus": usage_status,
+                "message": "Machine unlocked - press button on machine to start cycle",
+            }
+            
         except OmoApiError as err:
-            _LOGGER.warning("Unlock failed (machine may need manual start): %s", err)
-            # Don't raise - checkout was successful, user can unlock manually
-        
-        return {"orderId": order_id, "success": True}
+            _LOGGER.warning(
+                "Unlock request failed (machine may need manual unlock): %s. "
+                "Payment was successful, order_id: %s",
+                err,
+                order_id,
+            )
+            # Return success with warning - payment was processed, user can unlock via app
+            return {
+                "success": True,
+                "orderId": order_id,
+                "machineId": machine_id,
+                "usageStatus": "AWAITING_UNLOCK",
+                "warning": f"Unlock failed, but payment succeeded: {err}",
+            }
 
     async def async_unlock_machine(
         self,

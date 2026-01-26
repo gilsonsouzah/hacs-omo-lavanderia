@@ -94,9 +94,14 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
             raise HomeAssistantError("Machine is not available")
 
         machine_name = state.machine.display_name if state.machine else self._machine_id
+        price = state.machine.price.price if state.machine and state.machine.price else 0
         
         try:
-            _LOGGER.info("Starting cycle on machine %s", machine_name)
+            _LOGGER.info(
+                "Starting cycle on machine %s (R$ %.2f)",
+                machine_name,
+                price,
+            )
             
             result = await self.coordinator.client.async_start_machine(
                 machine_id=self._machine_id,
@@ -104,10 +109,22 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
                 laundry_id=self._laundry_id,
             )
 
-            if not result.get("success", True) and not result.get("orderId"):
-                raise HomeAssistantError("Failed to start machine cycle")
+            if not result.get("success"):
+                error_msg = result.get("error", "Unknown error")
+                raise HomeAssistantError(f"Failed to start machine: {error_msg}")
 
-            _LOGGER.info("Cycle started successfully on machine %s", machine_name)
+            usage_status = result.get("usageStatus", "UNKNOWN")
+            order_id = result.get("orderId", "")
+            
+            _LOGGER.info(
+                "Cycle initiated on machine %s, status: %s, order: %s",
+                machine_name,
+                usage_status,
+                order_id[:8] if order_id else "N/A",
+            )
+            
+            if result.get("warning"):
+                _LOGGER.warning("Warning: %s", result["warning"])
 
             # Wait a moment for the machine to update its status
             await asyncio.sleep(2)
@@ -117,5 +134,4 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
 
         except OmoApiError as err:
             _LOGGER.error("API error starting machine: %s", err)
-            raise HomeAssistantError(f"Failed to start machine: {err}") from err
             raise HomeAssistantError(f"Failed to start machine: {err}") from err
