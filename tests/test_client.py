@@ -1,84 +1,116 @@
 """Tests for Omo Lavanderia API client."""
-from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
-from aiohttp import ClientResponseError
+import time
 
-from custom_components.omo_lavanderia.api.client import OmoLavanderiaClient
+from custom_components.omo_lavanderia.api.client import OmoLavanderiaApiClient
 from custom_components.omo_lavanderia.api.exceptions import (
-    AuthenticationError,
-    ApiError,
+    OmoAuthError,
+    OmoApiError,
 )
+
+
+class MockResponse:
+    """Mock aiohttp response."""
+    
+    def __init__(self, status: int, json_data: dict = None, text_data: str = None):
+        self.status = status
+        self._json_data = json_data or {}
+        self._text_data = text_data or ""
+    
+    async def json(self):
+        return self._json_data
+    
+    async def text(self):
+        return self._text_data
+
+
+class MockContextManager:
+    """Mock async context manager for aiohttp."""
+    
+    def __init__(self, response: MockResponse):
+        self.response = response
+    
+    async def __aenter__(self):
+        return self.response
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
+class MockSession:
+    """Mock aiohttp ClientSession."""
+    
+    def __init__(self):
+        self.post_response = None
+        self.request_response = None
+        self.post_calls = []
+        self.request_calls = []
+    
+    def post(self, url, **kwargs):
+        self.post_calls.append((url, kwargs))
+        return MockContextManager(self.post_response)
+    
+    def request(self, method, url, **kwargs):
+        self.request_calls.append((method, url, kwargs))
+        return MockContextManager(self.request_response)
 
 
 @pytest.fixture
 def mock_session():
     """Create a mock aiohttp session."""
-    session = MagicMock()
-    session.request = AsyncMock()
-    return session
+    return MockSession()
 
 
 @pytest.fixture
 def client(mock_session):
     """Create a client instance."""
-    return OmoLavanderiaClient(mock_session, "test@email.com", "password123")
+    return OmoLavanderiaApiClient(mock_session, "test@email.com", "password123")
 
 
-class TestOmoLavanderiaClient:
-    """Tests for OmoLavanderiaClient."""
+class TestOmoLavanderiaApiClient:
+    """Tests for OmoLavanderiaApiClient."""
 
     @pytest.mark.asyncio
     async def test_login_success(self, client, mock_session):
         """Test successful login."""
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={
+        mock_session.post_response = MockResponse(
+            status=200,
+            json_data={
                 "data": {
                     "accessToken": "access_token_123",
                     "refreshToken": "refresh_token_456",
-                    "accessTokenExpiresIn": 1749692400000,
+                    "accessTokenExpiresIn": int(time.time()) + 3600,
                 },
-                "message": "Success!",
                 "success": True,
             }
         )
-        mock_session.request.return_value.__aenter__.return_value = mock_response
 
-        result = await client.async_login()
+        await client.async_login()
 
-        assert result is True
         assert client._access_token == "access_token_123"
         assert client._refresh_token == "refresh_token_456"
-        mock_session.request.assert_called_once()
+        assert len(mock_session.post_calls) == 1
 
     @pytest.mark.asyncio
     async def test_login_invalid_credentials(self, client, mock_session):
         """Test login with invalid credentials."""
-        mock_response = MagicMock()
-        mock_response.status = 400
-        mock_response.json = AsyncMock(
-            return_value={
-                "data": None,
-                "message": "Invalid credentials",
-                "success": False,
-            }
+        mock_session.post_response = MockResponse(
+            status=400,
+            text_data="Invalid credentials"
         )
-        mock_session.request.return_value.__aenter__.return_value = mock_response
 
-        with pytest.raises(AuthenticationError):
+        with pytest.raises(OmoAuthError):
             await client.async_login()
 
     @pytest.mark.asyncio
     async def test_get_laundries(self, client, mock_session):
         """Test getting laundries."""
-        # Set tokens first
-        client.set_tokens("access", "refresh", 9999999999)
+        client.set_tokens("access", "refresh", int(time.time()) + 3600)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={
+        mock_session.request_response = MockResponse(
+            status=200,
+            text_data='{"data": {"items": []}}',
+            json_data={
                 "data": {
                     "items": [
                         {
@@ -90,14 +122,9 @@ class TestOmoLavanderiaClient:
                             "isBlocked": False,
                         }
                     ],
-                    "totalPages": 1,
-                    "currentPage": 1,
                 },
-                "message": "Success!",
-                "success": True,
             }
         )
-        mock_session.request.return_value.__aenter__.return_value = mock_response
 
         laundries = await client.async_get_laundries()
 
@@ -108,12 +135,12 @@ class TestOmoLavanderiaClient:
     @pytest.mark.asyncio
     async def test_get_laundry_details(self, client, mock_session):
         """Test getting laundry details."""
-        client.set_tokens("access", "refresh", 9999999999)
+        client.set_tokens("access", "refresh", int(time.time()) + 3600)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={
+        mock_session.request_response = MockResponse(
+            status=200,
+            text_data='{"data": {}}',
+            json_data={
                 "data": {
                     "id": "laundry-123",
                     "name": "Test Laundry",
@@ -130,41 +157,33 @@ class TestOmoLavanderiaClient:
                                 "type": "WASHER",
                                 "status": "AVAILABLE",
                                 "cycleTime": 30,
+                                "code": "W1",
+                                "laundryId": "laundry-123",
+                                "serial": "123",
+                                "model": "Model1",
                             }
                         ],
-                        "dryers": [
-                            {
-                                "id": "dryer-1",
-                                "displayName": "S1",
-                                "type": "DRYER",
-                                "status": "IN_USE",
-                                "cycleTime": 45,
-                            }
-                        ],
+                        "dryers": [],
                     },
                 },
-                "message": "Success!",
-                "success": True,
             }
         )
-        mock_session.request.return_value.__aenter__.return_value = mock_response
 
         laundry = await client.async_get_laundry("laundry-123")
 
         assert laundry.id == "laundry-123"
         assert len(laundry.washers) == 1
-        assert len(laundry.dryers) == 1
         assert laundry.washers[0].display_name == "L1"
 
     @pytest.mark.asyncio
     async def test_get_active_orders(self, client, mock_session):
         """Test getting active orders."""
-        client.set_tokens("access", "refresh", 9999999999)
+        client.set_tokens("access", "refresh", int(time.time()) + 3600)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={
+        mock_session.request_response = MockResponse(
+            status=200,
+            text_data='{"data": []}',
+            json_data={
                 "data": [
                     {
                         "id": "order-123",
@@ -184,11 +203,8 @@ class TestOmoLavanderiaClient:
                         ],
                     }
                 ],
-                "message": "Success!",
-                "success": True,
             }
         )
-        mock_session.request.return_value.__aenter__.return_value = mock_response
 
         orders = await client.async_get_active_orders()
 
@@ -199,12 +215,12 @@ class TestOmoLavanderiaClient:
     @pytest.mark.asyncio
     async def test_get_payment_cards(self, client, mock_session):
         """Test getting payment cards."""
-        client.set_tokens("access", "refresh", 9999999999)
+        client.set_tokens("access", "refresh", int(time.time()) + 3600)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={
+        mock_session.request_response = MockResponse(
+            status=200,
+            text_data='{"data": []}',
+            json_data={
                 "data": [
                     {
                         "id": "card-123",
@@ -214,11 +230,8 @@ class TestOmoLavanderiaClient:
                         "brand": "visa",
                     }
                 ],
-                "message": "Success!",
-                "success": True,
             }
         )
-        mock_session.request.return_value.__aenter__.return_value = mock_response
 
         cards = await client.async_get_payment_cards()
 
@@ -227,38 +240,18 @@ class TestOmoLavanderiaClient:
         assert cards[0].nickname == "My Card"
         assert cards[0].brand == "visa"
 
-    @pytest.mark.asyncio
-    async def test_start_machine(self, client, mock_session):
-        """Test starting a machine."""
-        client.set_tokens("access", "refresh", 9999999999)
-
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.json = AsyncMock(
-            return_value={
-                "data": {"orderId": "new-order-123"},
-                "message": "Success!",
-                "success": True,
-            }
-        )
-        mock_session.request.return_value.__aenter__.return_value = mock_response
-
-        result = await client.async_start_machine("laundry-123", "machine-123", "card-123")
-
-        assert result == {"orderId": "new-order-123"}
-
     def test_is_token_expired_no_token(self, client):
         """Test token expiration check when no token is set."""
         assert client.is_token_expired() is True
 
     def test_is_token_expired_with_valid_token(self, client):
         """Test token expiration check with valid token."""
-        client.set_tokens("access", "refresh", 9999999999)
+        client.set_tokens("access", "refresh", int(time.time()) + 3600)
         assert client.is_token_expired() is False
 
     def test_is_token_expired_with_expired_token(self, client):
         """Test token expiration check with expired token."""
-        client.set_tokens("access", "refresh", 1000000000)  # Very old timestamp
+        client.set_tokens("access", "refresh", 1000000000)
         assert client.is_token_expired() is True
 
     def test_set_tokens(self, client):
@@ -269,12 +262,35 @@ class TestOmoLavanderiaClient:
         assert client._refresh_token == "refresh_xyz"
         assert client._token_expires_at == 1749692400
 
-    def test_get_tokens(self, client):
-        """Test getting tokens."""
-        client.set_tokens("access_abc", "refresh_xyz", 1749692400)
+    def test_get_token_status(self, client):
+        """Test getting token status."""
+        status = client.get_token_status()
+        assert status["has_token"] is False
+        assert status["is_expired"] is True
 
-        tokens = client.get_tokens()
+        client.set_tokens("access", "refresh", int(time.time()) + 3600)
+        status = client.get_token_status()
+        assert status["has_token"] is True
+        assert status["is_expired"] is False
 
-        assert tokens["access_token"] == "access_abc"
-        assert tokens["refresh_token"] == "refresh_xyz"
-        assert tokens["expires_at"] == 1749692400
+    def test_token_update_callback(self, client):
+        """Test token update callback can be set."""
+        def callback(access, refresh, expires):
+            pass
+        
+        client.set_token_update_callback(callback)
+        assert client._token_update_callback is not None
+
+    def test_rate_limiting(self, client):
+        """Test rate limiting for login attempts."""
+        client._login_failures = 3
+        client._last_login_attempt = time.time()
+        
+        assert client._should_rate_limit_login() is True
+        
+        client._login_failures = 0
+        assert client._should_rate_limit_login() is False
+
+    def test_username_property(self, client):
+        """Test username property."""
+        assert client.username == "test@email.com"

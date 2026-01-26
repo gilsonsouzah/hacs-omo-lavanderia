@@ -54,6 +54,16 @@
           "unavailable": "Unavailable"
         }
       },
+      "diagnostic": {
+        "name": "Connectivity",
+        "state": {
+          "connected": "Connected",
+          "no_token": "No Token",
+          "token_expired": "Token Expired",
+          "token_expiring": "Token Expiring Soon",
+          "auth_issues": "Authentication Issues"
+        }
+      },
       "laundry_status": {
         "name": "Laundry Status",
         "state": {
@@ -66,6 +76,12 @@
     "binary_sensor": {
       "available": {
         "name": "Available"
+      },
+      "running": {
+        "name": "Running"
+      },
+      "ending_soon": {
+        "name": "Ending Soon"
       },
       "in_use_by_me": {
         "name": "In Use By Me"

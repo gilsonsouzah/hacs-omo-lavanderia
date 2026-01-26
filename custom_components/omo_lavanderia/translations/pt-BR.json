@@ -53,6 +53,16 @@
           "in_use_by_me": "Em Uso (por mim)",
           "unavailable": "Indisponível"
         }
+      },
+      "diagnostic": {
+        "name": "Conectividade",
+        "state": {
+          "connected": "Conectado",
+          "no_token": "Sem Token",
+          "token_expired": "Token Expirado",
+          "token_expiring": "Token Expirando",
+          "auth_issues": "Problemas de Autenticação"
+        }
       }
     },
     "binary_sensor": {
@@ -61,6 +71,9 @@
       },
       "running": {
         "name": "Em Funcionamento"
+      },
+      "ending_soon": {
+        "name": "Finalizando"
       }
     },
     "button": {

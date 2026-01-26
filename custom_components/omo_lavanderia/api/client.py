@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from typing import Any
+from typing import Any, Callable
 
 import aiohttp
 
@@ -31,13 +31,22 @@ class OmoLavanderiaApiClient:
         self._access_token: str | None = None
         self._refresh_token: str | None = None
         self._token_expires_at: int = 0
+        self._last_login_attempt: float = 0
+        self._login_failures: int = 0
         self._device_id = self._generate_device_id(username)
+        self._token_update_callback: Callable[[str, str, int], None] | None = None
 
     @staticmethod
     def _generate_device_id(username: str) -> str:
         """Generate a consistent device ID based on username."""
         hash_input = f"omo_lavanderia_{username}".encode("utf-8")
         return hashlib.sha256(hash_input).hexdigest()
+
+    def set_token_update_callback(
+        self, callback: Callable[[str, str, int], None]
+    ) -> None:
+        """Set callback to be called when tokens are updated."""
+        self._token_update_callback = callback
 
     def set_tokens(
         self,
@@ -49,6 +58,8 @@ class OmoLavanderiaApiClient:
         self._access_token = access_token
         self._refresh_token = refresh_token
         self._token_expires_at = expires_at
+        # Reset failure count when tokens are set successfully
+        self._login_failures = 0
 
     @property
     def access_token(self) -> str | None:
@@ -65,18 +76,74 @@ class OmoLavanderiaApiClient:
         """Get token expiration timestamp."""
         return self._token_expires_at
 
+    @property
+    def username(self) -> str:
+        """Get username."""
+        return self._username
+
+    @property
+    def login_failures(self) -> int:
+        """Get number of consecutive login failures."""
+        return self._login_failures
+
+    @property
+    def last_login_attempt(self) -> float:
+        """Get timestamp of last login attempt."""
+        return self._last_login_attempt
+
+    def get_token_status(self) -> dict[str, Any]:
+        """Get detailed token status for diagnostics."""
+        now = time.time()
+        expires_at_seconds = self._normalize_timestamp(self._token_expires_at)
+        
+        if expires_at_seconds > 0:
+            time_until_expiry = expires_at_seconds - now
+            is_expired = time_until_expiry <= 0
+            is_expiring_soon = time_until_expiry <= 300  # 5 minutes
+        else:
+            time_until_expiry = 0
+            is_expired = True
+            is_expiring_soon = True
+
+        return {
+            "has_token": bool(self._access_token),
+            "is_expired": is_expired,
+            "is_expiring_soon": is_expiring_soon,
+            "expires_at": expires_at_seconds,
+            "time_until_expiry_seconds": max(0, int(time_until_expiry)),
+            "login_failures": self._login_failures,
+            "last_login_attempt": self._last_login_attempt,
+        }
+
+    def _normalize_timestamp(self, timestamp: int) -> float:
+        """Normalize timestamp from ms to seconds if needed."""
+        if timestamp == 0:
+            return 0
+        # If > year 2286, it's in milliseconds
+        if timestamp > 9999999999:
+            return timestamp / 1000
+        return float(timestamp)
+
     def is_token_expired(self) -> bool:
         """Check if token is expired or about to expire."""
-        if self._token_expires_at == 0:
+        if not self._access_token or self._token_expires_at == 0:
             return True
         
-        # API returns timestamp in milliseconds, convert to seconds for comparison
-        expires_at_seconds = self._token_expires_at
-        if self._token_expires_at > 9999999999:  # If > year 2286, it's in milliseconds
-            expires_at_seconds = self._token_expires_at / 1000
+        expires_at_seconds = self._normalize_timestamp(self._token_expires_at)
         
         # Token is expired if current time is within 5 minutes of expiration
         return time.time() >= (expires_at_seconds - 300)
+
+    def _should_rate_limit_login(self) -> bool:
+        """Check if we should wait before attempting login again."""
+        if self._login_failures == 0:
+            return False
+        
+        # Exponential backoff: wait 2^failures seconds, max 5 minutes
+        wait_time = min(2 ** self._login_failures, 300)
+        time_since_last = time.time() - self._last_login_attempt
+        
+        return time_since_last < wait_time
 
     def _get_headers(self, include_auth: bool = True) -> dict[str, str]:
         """Get standard headers for API requests."""
@@ -112,6 +179,7 @@ class OmoLavanderiaApiClient:
                 headers=headers,
                 json=data,
                 params=params,
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
                 response_text = await response.text()
 
@@ -123,12 +191,12 @@ class OmoLavanderiaApiClient:
 
                 if response.status == 401:
                     if retry_on_401 and include_auth:
-                        _LOGGER.debug("Token expired, attempting refresh/login")
-                        await self.async_login()
+                        _LOGGER.debug("Token expired (401), attempting refresh/login")
+                        await self.async_ensure_valid_token()
                         return await self._request(
                             method, endpoint, data, params, include_auth, False
                         )
-                    raise OmoAuthError("Authentication failed")
+                    raise OmoAuthError("Authentication failed - token invalid")
 
                 if response.status >= 400:
                     raise OmoApiError(
@@ -146,9 +214,34 @@ class OmoLavanderiaApiClient:
         except aiohttp.ClientError as err:
             _LOGGER.error("HTTP request failed: %s", err)
             raise OmoApiError(f"Connection error: {err}") from err
+        except TimeoutError as err:
+            _LOGGER.error("Request timeout: %s", err)
+            raise OmoApiError(f"Request timeout: {err}") from err
+
+    async def async_ensure_valid_token(self) -> bool:
+        """Ensure we have a valid token, refreshing if needed.
+        
+        Returns True if token is valid, raises exception otherwise.
+        """
+        if not self.is_token_expired():
+            return True
+        
+        _LOGGER.info("Token expired or missing, performing login")
+        await self.async_login()
+        return True
 
     async def async_login(self) -> None:
         """Authenticate with the API."""
+        # Rate limit login attempts
+        if self._should_rate_limit_login():
+            wait_time = min(2 ** self._login_failures, 300)
+            raise OmoAuthError(
+                f"Too many login failures ({self._login_failures}), "
+                f"waiting {wait_time}s before retry"
+            )
+
+        self._last_login_attempt = time.time()
+
         login_data = {
             "username": self._username,
             "password": self._password,
@@ -161,31 +254,63 @@ class OmoLavanderiaApiClient:
             headers = self._get_headers(include_auth=False)
 
             async with self._session.post(
-                url, headers=headers, json=login_data
+                url,
+                headers=headers,
+                json=login_data,
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
                 if response.status >= 400:
-                    raise OmoAuthError("Login failed")
+                    self._login_failures += 1
+                    response_text = await response.text()
+                    _LOGGER.error(
+                        "Login failed with status %s: %s",
+                        response.status,
+                        response_text[:200],
+                    )
+                    raise OmoAuthError(f"Login failed: HTTP {response.status}")
 
                 result = await response.json()
                 data = result.get("data", result)
 
-                self._access_token = data.get("accessToken", "")
-                self._refresh_token = data.get("refreshToken", "")
-                # API returns expiration as timestamp (sometimes in ms, sometimes in s)
+                new_access_token = data.get("accessToken", "")
+                new_refresh_token = data.get("refreshToken", "")
                 expires_in = data.get("accessTokenExpiresIn", 0)
-                # Normalize to seconds
-                if expires_in > 9999999999:  # If > year 2286, it's in milliseconds
-                    expires_in = expires_in / 1000
-                self._token_expires_at = int(expires_in)
+                
+                if not new_access_token:
+                    self._login_failures += 1
+                    raise OmoAuthError("Login response missing access token")
+
+                # Normalize expiration timestamp
+                expires_at = int(self._normalize_timestamp(expires_in))
+
+                # Update tokens
+                self._access_token = new_access_token
+                self._refresh_token = new_refresh_token
+                self._token_expires_at = expires_at
+                self._login_failures = 0  # Reset on success
 
                 _LOGGER.info(
-                    "Successfully logged in as %s, token expires at %s",
+                    "Successfully logged in as %s, token expires at %s (in %d seconds)",
                     self._username,
                     self._token_expires_at,
+                    max(0, expires_at - int(time.time())),
                 )
 
+                # Notify callback about token update
+                if self._token_update_callback:
+                    try:
+                        self._token_update_callback(
+                            new_access_token, new_refresh_token, expires_at
+                        )
+                    except Exception as err:
+                        _LOGGER.warning("Token update callback failed: %s", err)
+
         except aiohttp.ClientError as err:
+            self._login_failures += 1
             raise OmoAuthError(f"Login failed: {err}") from err
+        except TimeoutError as err:
+            self._login_failures += 1
+            raise OmoAuthError(f"Login timeout: {err}") from err
 
     async def async_get_laundries(
         self,
@@ -230,7 +355,13 @@ class OmoLavanderiaApiClient:
         card_id: str,
         laundry_id: str,
     ) -> dict[str, Any]:
-        """Start a machine cycle with payment."""
+        """Start a machine cycle with payment and unlock.
+        
+        This performs the full flow:
+        1. POST /order/payment-checkout - Create order and process payment
+        2. POST /machine/start-machine - Unlock the machine
+        """
+        # Step 1: Payment checkout
         payment_data = {
             "payment_method": "CREDIT_CARD",
             "machines_id": [machine_id],
@@ -238,7 +369,55 @@ class OmoLavanderiaApiClient:
             "laundry_id": laundry_id,
         }
 
-        data = await self._request("POST", "/order/payment-checkout", data=payment_data)
+        _LOGGER.debug("Starting checkout for machine %s", machine_id)
+        checkout_result = await self._request("POST", "/order/payment-checkout", data=payment_data)
+        
+        # Extract order_id from checkout response
+        order_id = None
+        if isinstance(checkout_result, dict):
+            order_id = checkout_result.get("orderId") or checkout_result.get("id")
+        
+        if not order_id:
+            _LOGGER.error("Checkout succeeded but no order_id returned: %s", checkout_result)
+            return checkout_result
+        
+        _LOGGER.debug("Checkout complete, order_id: %s", order_id)
+        
+        # Step 2: Unlock/Start the machine
+        unlock_data = {
+            "laundryId": laundry_id,
+            "machineId": machine_id,
+            "orderId": order_id,
+        }
+        
+        _LOGGER.debug("Unlocking machine %s", machine_id)
+        try:
+            unlock_result = await self._request("POST", "/machine/start-machine", data=unlock_data)
+            _LOGGER.info(
+                "Machine %s unlocked successfully: %s",
+                machine_id,
+                unlock_result.get("usageStatus") if isinstance(unlock_result, dict) else unlock_result,
+            )
+        except OmoApiError as err:
+            _LOGGER.warning("Unlock failed (machine may need manual start): %s", err)
+            # Don't raise - checkout was successful, user can unlock manually
+        
+        return {"orderId": order_id, "success": True}
+
+    async def async_unlock_machine(
+        self,
+        machine_id: str,
+        laundry_id: str,
+        order_id: str,
+    ) -> dict[str, Any]:
+        """Unlock a machine that was already paid for."""
+        unlock_data = {
+            "laundryId": laundry_id,
+            "machineId": machine_id,
+            "orderId": order_id,
+        }
+        
+        data = await self._request("POST", "/machine/start-machine", data=unlock_data)
         return data
 
     def get_all_machines(self, laundry: Laundry) -> list[LaundryMachine]:

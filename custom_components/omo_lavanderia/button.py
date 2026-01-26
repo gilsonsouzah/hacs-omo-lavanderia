@@ -1,7 +1,9 @@
 """Button entities for Omo Lavanderia."""
 from __future__ import annotations
 
+import asyncio
 import logging
+from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
@@ -72,30 +74,48 @@ class OmoStartCycleButton(OmoLavanderiaEntity, ButtonEntity):
             return False
         return state.is_available
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes including price."""
+        state = self.machine_state
+        attrs = {}
+        if state and state.machine:
+            if state.machine.price:
+                attrs["price"] = state.machine.price.price
+                attrs["price_formatted"] = f"R$ {state.machine.price.price:.2f}"
+            if state.machine.cycle_time:
+                attrs["cycle_time_minutes"] = state.machine.cycle_time
+        return attrs
+
     async def async_press(self) -> None:
         """Handle button press - start machine cycle."""
         state = self.machine_state
         if state is None or not state.is_available:
             raise HomeAssistantError("Machine is not available")
 
+        machine_name = state.machine.display_name if state.machine else self._machine_id
+        
         try:
+            _LOGGER.info("Starting cycle on machine %s", machine_name)
+            
             result = await self.coordinator.client.async_start_machine(
                 machine_id=self._machine_id,
                 card_id=self._card_id,
                 laundry_id=self._laundry_id,
             )
 
-            if not result.get("success", True):
+            if not result.get("success", True) and not result.get("orderId"):
                 raise HomeAssistantError("Failed to start machine cycle")
 
-            _LOGGER.info(
-                "Started cycle on machine %s",
-                state.machine.display_name if state.machine else self._machine_id,
-            )
+            _LOGGER.info("Cycle started successfully on machine %s", machine_name)
 
+            # Wait a moment for the machine to update its status
+            await asyncio.sleep(2)
+            
             # Refresh coordinator to update states
             await self.coordinator.async_request_refresh()
 
         except OmoApiError as err:
             _LOGGER.error("API error starting machine: %s", err)
+            raise HomeAssistantError(f"Failed to start machine: {err}") from err
             raise HomeAssistantError(f"Failed to start machine: {err}") from err

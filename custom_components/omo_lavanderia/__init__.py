@@ -76,6 +76,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass=hass,
         client=client,
         laundry_id=entry.data[CONF_LAUNDRY_ID],
+        config_entry=entry,
     )
 
     # Fetch initial data

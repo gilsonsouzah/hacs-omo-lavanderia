@@ -25,7 +25,7 @@ class TestAsyncSetupEntry:
         with patch(
             "custom_components.omo_lavanderia.async_get_clientsession"
         ) as mock_session, patch(
-            "custom_components.omo_lavanderia.OmoLavanderiaClient"
+            "custom_components.omo_lavanderia.OmoLavanderiaApiClient"
         ) as mock_client_class, patch(
             "custom_components.omo_lavanderia.OmoLavanderiaCoordinator"
         ) as mock_coordinator_class:
