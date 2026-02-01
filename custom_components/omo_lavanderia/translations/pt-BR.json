@@ -79,12 +79,6 @@
     "button": {
       "start_cycle": {
         "name": "Iniciar Ciclo"
-      },
-      "purchase": {
-        "name": "Comprar"
-      },
-      "unlock": {
-        "name": "Liberar"
       }
     }
   }

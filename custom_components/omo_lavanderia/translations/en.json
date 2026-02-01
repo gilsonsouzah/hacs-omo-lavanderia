@@ -93,12 +93,6 @@
     "button": {
       "start_cycle": {
         "name": "Start Cycle"
-      },
-      "purchase": {
-        "name": "Purchase"
-      },
-      "unlock": {
-        "name": "Unlock"
       }
     }
   }
