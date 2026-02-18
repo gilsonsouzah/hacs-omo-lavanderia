@@ -2,7 +2,9 @@
 
 DOMAIN = "omo_lavanderia"
 API_BASE_URL = "https://api.machine-guardian.com"
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.7.0"
+APP_PLATFORM = "web"
+APP_OS_VERSION = "0.0.0"
 DEFAULT_SCAN_INTERVAL = 30  # seconds
 
 # Config entry keys

@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 import aiohttp
 
-from ..const import API_BASE_URL, APP_VERSION
+from ..const import API_BASE_URL, APP_OS_VERSION, APP_PLATFORM, APP_VERSION
 from .exceptions import OmoApiError, OmoAuthError
 from .models import ActiveOrder, Laundry, LaundryMachine, PaymentCard
 
@@ -151,6 +151,8 @@ class OmoLavanderiaApiClient:
             "Content-Type": "application/json",
             "Accept": "application/json",
             "x-app-version": APP_VERSION,
+            "x-app-platform": APP_PLATFORM,
+            "x-app-os-version": APP_OS_VERSION,
             "ngrok-skip-browser-warning": "69420",
         }
         if include_auth and self._access_token:
